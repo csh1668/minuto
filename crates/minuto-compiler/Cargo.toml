@@ -1,0 +1,9 @@
+[package]
+name = "minuto-compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+minuto-vm = { path = "../minuto-vm" }
+logos = "0.16.1"
+ariadne = "0.6.0"
