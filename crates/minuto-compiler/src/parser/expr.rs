@@ -1,6 +1,4 @@
-use crate::ast::{
-    BinOp, ExprKind, FieldInit, Ident, Parsed, ParsedExpr, Span, StaticReceiver, UnaryOp,
-};
+use crate::ast::{BinOp, ExprKind, FieldInit, Ident, Parsed, ParsedExpr, Span, StaticReceiver, UnaryOp, RESERVED_NAMES};
 use crate::errors::ParserError;
 use crate::lexer::token::Token;
 use crate::parser::Parser;
@@ -266,10 +264,15 @@ impl Parser {
                 Ok(inner)
             }
 
-            // alloc<T>(n)
-            Token::Ident(ref name) if name == "alloc" => self.parse_alloc(start),
-            // free<T>(expr) or free(expr)
-            Token::Ident(ref name) if name == "free" => self.parse_free(start),
+            Token::Ident(ref name) if RESERVED_NAMES.contains(&name.as_str()) => {
+                match name.as_str() {
+                    // alloc<T>(n)
+                    "alloc" => self.parse_alloc(start),
+                    // free(expr)
+                    "free" => self.parse_free(start),
+                    _ => unreachable!(),
+                }
+            }
 
             // span::method(args)
             Token::Span if self.peek_at(1).map(|(t, _)| t) == Some(&Token::ColonColon) => {
