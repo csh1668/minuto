@@ -106,6 +106,10 @@ impl SymbolTable {
         &self.symbols[id.0 as usize]
     }
 
+    pub fn get_mut(&mut self, id: SymbolId) -> &mut Symbol {
+        &mut self.symbols[id.0 as usize]
+    }
+
     pub fn get_struct_info(&self, id: SymbolId) -> Option<&StructInfo> {
         match &self.get(id).kind {
             SymbolKind::Struct(info) => Some(info),

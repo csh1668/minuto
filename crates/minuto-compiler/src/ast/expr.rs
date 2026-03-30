@@ -69,6 +69,8 @@ pub enum ExprKind<P: Phase> {
     },
 }
 
+pub const RESERVED_NAMES: &[&str] = &["alloc", "free"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldInit<P: Phase> {
     pub name: String,

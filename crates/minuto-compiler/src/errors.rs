@@ -109,9 +109,12 @@ pub enum ResolverError {
     UndefinedField { struct_name: String, field: String },
     UndefinedMethod { struct_name: String, method: String },
     DuplicateDefinition { name: String },
+    DuplicateField { struct_name: String, field: String },
     MainNotFound,
     InvalidMainSignature { signature: String },
     ReservedIdentifier { name: String },
+    BreakOutsideLoop,
+    ContinueOutsideLoop,
 }
 
 impl CompilerError for ResolverError {
@@ -123,9 +126,12 @@ impl CompilerError for ResolverError {
             ResolverError::UndefinedField { .. } => "E0204",
             ResolverError::UndefinedMethod { .. } => "E0205",
             ResolverError::DuplicateDefinition { .. } => "E0206",
+            ResolverError::DuplicateField { .. } => "E0210",
             ResolverError::MainNotFound => "E0207",
             ResolverError::InvalidMainSignature { .. } => "E0208",
             ResolverError::ReservedIdentifier { .. } => "E0209",
+            ResolverError::BreakOutsideLoop => "E0211",
+            ResolverError::ContinueOutsideLoop => "E0212",
         }
     }
 }
@@ -164,12 +170,21 @@ impl fmt::Display for ResolverError {
                     signature,
                 )
             }
+            ResolverError::DuplicateField { struct_name, field } => {
+                write!(f, "duplicate field '{}' in struct '{}'", field, struct_name)
+            }
             ResolverError::ReservedIdentifier { name } => {
                 write!(
                     f,
                     "'{}' is a reserved builtin identifier and cannot be used as a variable or function name",
                     name,
                 )
+            }
+            ResolverError::BreakOutsideLoop => {
+                write!(f, "'break' used outside of a loop")
+            }
+            ResolverError::ContinueOutsideLoop => {
+                write!(f, "'continue' used outside of a loop")
             }
         }
     }
