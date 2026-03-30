@@ -115,9 +115,7 @@ impl SymbolTable {
 
     pub fn get_fn_sig(&self, id: SymbolId) -> Option<&FnSig> {
         match &self.get(id).kind {
-            SymbolKind::Fn(sig)
-            | SymbolKind::Method(_, sig)
-            | SymbolKind::StaticMethod(_, sig) => Some(sig),
+            SymbolKind::Fn(sig) => Some(sig),
             _ => None,
         }
     }
@@ -142,8 +140,6 @@ pub enum SymbolKind {
     Param,
     Fn(FnSig),
     Struct(StructInfo),
-    Method(SymbolId, FnSig),       // (소속 struct ID, 시그니처)
-    StaticMethod(SymbolId, FnSig), // (소속 struct ID, 시그니처)
 }
 
 #[derive(Debug, Clone)]
@@ -155,14 +151,12 @@ pub struct FnSig {
 #[derive(Debug, Clone)]
 pub struct ParamInfo {
     pub name: String,
-    pub is_self: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructInfo {
     pub fields: Vec<FieldInfo>,
-    pub methods: HashMap<String, SymbolId>,
-    pub static_methods: HashMap<String, SymbolId>,
+    pub fns: HashMap<String, SymbolId>,
 }
 
 #[derive(Debug, Clone)]

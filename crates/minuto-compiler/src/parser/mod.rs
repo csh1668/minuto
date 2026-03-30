@@ -15,6 +15,7 @@ pub struct Parser {
     tokens: Vec<(Token, Span)>,
     pos: usize,
     allow_struct_lit: bool,
+    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 impl Parser {
@@ -23,28 +24,29 @@ impl Parser {
             tokens,
             pos: 0,
             allow_struct_lit: true,
+            diagnostics: Vec::new(),
         }
     }
 
-    pub fn parse(&mut self) -> Result<ParsedProgram, Vec<Diagnostic>> {
+    pub fn parse(mut self) -> Result<ParsedProgram, Vec<Diagnostic>> {
         let mut decls = Vec::new();
-        let mut errors = Vec::new();
 
         while !self.at_end() {
             match self.parse_decl() {
                 Ok(decl) => decls.push(decl),
-                Err(mut errs) => {
-                    errors.append(&mut errs);
-                    self.synchronize_top_level();
-                }
+                Err(()) => self.synchronize_top_level(),
             }
         }
 
-        if !errors.is_empty() {
-            return Err(errors);
+        if self.diagnostics.is_empty() {
+            Ok(ParsedProgram { decls })
+        } else {
+            Err(self.diagnostics)
         }
+    }
 
-        Ok(ParsedProgram { decls })
+    fn emit(&mut self, error: ParserError, span: Span) {
+        self.diagnostics.push(Diagnostic::from((error, span)));
     }
 
     fn peek(&self) -> Option<&(Token, Span)> {
@@ -71,7 +73,7 @@ impl Parser {
             None
         }
     }
-    fn expect(&mut self, expected: &Token) -> Result<Span, Diagnostic> {
+    fn expect(&mut self, expected: &Token) -> Result<Span, ()> {
         if self.check(expected) {
             Ok(self.advance().1)
         } else {
@@ -80,13 +82,14 @@ impl Parser {
                 Some((t, _)) => format!("{t:?}"),
                 None => "EOF".to_string(),
             };
-            Err(Diagnostic::from((
+            self.emit(
                 ParserError::UnexpectedToken {
                     expected: format!("{expected:?}"),
                     found,
                 },
                 self.span_from(start),
-            )))
+            );
+            Err(())
         }
     }
 

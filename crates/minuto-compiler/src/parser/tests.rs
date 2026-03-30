@@ -17,13 +17,15 @@ fn parse_type_ok(source: &str) -> TypeExpr<Parsed> {
 fn parse_expr_err(source: &str) -> String {
     let tokens = lex(source);
     let mut parser = Parser::new(tokens);
-    parser.parse_expr().unwrap_err().message
+    parser.parse_expr().unwrap_err();
+    parser.diagnostics.last().unwrap().message.clone()
 }
 
 fn parse_type_err(source: &str) -> String {
     let tokens = lex(source);
     let mut parser = Parser::new(tokens);
-    parser.parse_type().unwrap_err().message
+    parser.parse_type().unwrap_err();
+    parser.diagnostics.last().unwrap().message.clone()
 }
 
 fn lex(source: &str) -> Vec<(crate::lexer::token::Token, crate::common::Span)> {
@@ -954,12 +956,8 @@ fn parse_stmt_ok(source: &str) -> ParsedStmt {
 fn parse_stmt_err(source: &str) -> Vec<String> {
     let tokens = lex(source);
     let mut parser = Parser::new(tokens);
-    parser
-        .parse_stmt()
-        .unwrap_err()
-        .into_iter()
-        .map(|d| d.message)
-        .collect()
+    let _ = parser.parse_stmt();
+    parser.diagnostics.iter().map(|d| d.message.clone()).collect()
 }
 
 fn parse_block_ok(source: &str) -> Block<Parsed> {
@@ -971,12 +969,8 @@ fn parse_block_ok(source: &str) -> Block<Parsed> {
 fn parse_block_err(source: &str) -> Vec<String> {
     let tokens = lex(source);
     let mut parser = Parser::new(tokens);
-    parser
-        .parse_block()
-        .unwrap_err()
-        .into_iter()
-        .map(|d| d.message)
-        .collect()
+    let _ = parser.parse_block();
+    parser.diagnostics.iter().map(|d| d.message.clone()).collect()
 }
 
 // ══════════════════════════════════════════
@@ -1222,13 +1216,13 @@ fn stmt_error_missing_semicolon() {
 
 fn parse_ok(source: &str) -> ParsedProgram {
     let tokens = lex(source);
-    let mut parser = Parser::new(tokens);
+    let parser = Parser::new(tokens);
     parser.parse().expect("parse failed")
 }
 
 fn parse_err(source: &str) -> Vec<String> {
     let tokens = lex(source);
-    let mut parser = Parser::new(tokens);
+    let parser = Parser::new(tokens);
     parser
         .parse()
         .unwrap_err()
@@ -1277,13 +1271,8 @@ fn fn_decl_complex_params() {
     match &prog.decls[0] {
         Decl::Fn(f) => {
             assert_eq!(f.params.len(), 2);
-            match &f.params[0].kind {
-                ParamKind::Named { name, ty } => {
-                    assert_eq!(name.name, "p");
-                    assert!(matches!(ty, TypeExpr::Ptr(_, _)));
-                }
-                _ => panic!("expected Named param"),
-            }
+            assert_eq!(f.params[0].name.name, "p");
+            assert!(matches!(f.params[0].ty, TypeExpr::Ptr(_, _)));
         }
         _ => panic!("expected Fn decl"),
     }
@@ -1295,12 +1284,7 @@ fn fn_decl_fn_type_param() {
     match &prog.decls[0] {
         Decl::Fn(f) => {
             assert_eq!(f.params.len(), 2);
-            match &f.params[0].kind {
-                ParamKind::Named { ty, .. } => {
-                    assert!(matches!(ty, TypeExpr::Fn { .. }));
-                }
-                _ => panic!("expected Named param"),
-            }
+            assert!(matches!(f.params[0].ty, TypeExpr::Fn { .. }));
         }
         _ => panic!("expected Fn decl"),
     }
@@ -1359,14 +1343,18 @@ fn struct_decl_with_methods() {
 
 #[test]
 fn struct_self_param_no_type() {
+    // `self` without explicit type is desugared to `self: ptr<Foo>`
     let prog = parse_ok(
         "struct Foo { fn bar(self) { } }",
     );
     match &prog.decls[0] {
         Decl::Struct(s) => {
-            match &s.methods[0].params[0].kind {
-                ParamKind::SelfParam { ty } => assert!(ty.is_none()),
-                _ => panic!("expected SelfParam"),
+            let param = &s.methods[0].params[0];
+            assert_eq!(param.name.name, "self");
+            assert!(matches!(param.ty, TypeExpr::Ptr(_, _)));
+            // Inner type should be Named("Foo")
+            if let TypeExpr::Ptr(_, inner) = &param.ty {
+                assert!(matches!(inner.as_ref(), TypeExpr::Named(_, name) if name == "Foo"));
             }
         }
         _ => panic!("expected Struct decl"),
@@ -1375,18 +1363,15 @@ fn struct_self_param_no_type() {
 
 #[test]
 fn struct_self_param_with_type() {
+    // `self: ptr<Foo>` keeps explicit type as-is
     let prog = parse_ok(
         "struct Foo { fn bar(self: ptr<Foo>) { } }",
     );
     match &prog.decls[0] {
         Decl::Struct(s) => {
-            match &s.methods[0].params[0].kind {
-                ParamKind::SelfParam { ty } => {
-                    assert!(ty.is_some());
-                    assert!(matches!(ty.as_ref().unwrap(), TypeExpr::Ptr(_, _)));
-                }
-                _ => panic!("expected SelfParam"),
-            }
+            let param = &s.methods[0].params[0];
+            assert_eq!(param.name.name, "self");
+            assert!(matches!(param.ty, TypeExpr::Ptr(_, _)));
         }
         _ => panic!("expected Struct decl"),
     }

@@ -1,23 +1,25 @@
 use crate::ast::{Block, Ident, Parsed, ParsedStmt, Stmt, StmtKind};
-use crate::diagnostic::Diagnostic;
 use crate::errors::ParserError;
 use crate::lexer::token::Token;
 use crate::Parser;
 
 impl Parser {
-    pub(crate) fn parse_stmt(&mut self) -> Result<ParsedStmt, Vec<Diagnostic>> {
+    pub(crate) fn parse_stmt(&mut self) -> Result<ParsedStmt, ()> {
         let start = self.mark();
 
         match self.peek().map(|(t, _)| t.clone()) {
-            None => Err(vec![Diagnostic::from((
-                ParserError::UnexpectedEof {
-                    expected: "statement".to_string(),
-                },
-                self.span_from(start),
-            ))]),
+            None => {
+                self.emit(
+                    ParserError::UnexpectedEof {
+                        expected: "statement".to_string(),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
 
             Some(Token::Var) => {
-                let kind = self.parse_var_decl().map_err(|e| vec![e])?;
+                let kind = self.parse_var_decl()?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind,
@@ -25,7 +27,7 @@ impl Parser {
             }
 
             Some(Token::Const) => {
-                let kind = self.parse_const_decl().map_err(|e| vec![e])?;
+                let kind = self.parse_const_decl()?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind,
@@ -33,7 +35,7 @@ impl Parser {
             }
 
             Some(Token::Return) => {
-                let kind = self.parse_return_stmt().map_err(|e| vec![e])?;
+                let kind = self.parse_return_stmt()?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind,
@@ -58,7 +60,7 @@ impl Parser {
 
             Some(Token::Break) => {
                 self.advance();
-                self.expect(&Token::Semicolon).map_err(|e| vec![e])?;
+                self.expect(&Token::Semicolon)?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind: StmtKind::Break,
@@ -67,7 +69,7 @@ impl Parser {
 
             Some(Token::Continue) => {
                 self.advance();
-                self.expect(&Token::Semicolon).map_err(|e| vec![e])?;
+                self.expect(&Token::Semicolon)?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind: StmtKind::Continue,
@@ -75,8 +77,8 @@ impl Parser {
             }
 
             Some(_) => {
-                let expr = self.parse_expr().map_err(|e| vec![e])?;
-                self.expect(&Token::Semicolon).map_err(|e| vec![e])?;
+                let expr = self.parse_expr()?;
+                self.expect(&Token::Semicolon)?;
                 Ok(Stmt {
                     ann: self.span_from(start),
                     kind: StmtKind::Expr(expr),
@@ -85,28 +87,20 @@ impl Parser {
         }
     }
 
-    pub(crate) fn parse_block(&mut self) -> Result<Block<Parsed>, Vec<Diagnostic>> {
-        self.expect(&Token::LBrace).map_err(|e| vec![e])?;
+    pub(crate) fn parse_block(&mut self) -> Result<Block<Parsed>, ()> {
+        self.expect(&Token::LBrace)?;
 
         let start = self.mark();
         let mut stmts = Vec::new();
-        let mut all_errors = Vec::new();
 
         while !self.check(&Token::RBrace) && !self.at_end() {
             match self.parse_stmt() {
                 Ok(stmt) => stmts.push(stmt),
-                Err(mut errs) => {
-                    all_errors.append(&mut errs);
-                    self.synchronize();
-                }
+                Err(()) => self.synchronize(),
             }
         }
 
-        self.expect(&Token::RBrace).map_err(|e| vec![e])?;
-
-        if !all_errors.is_empty() {
-            return Err(all_errors);
-        }
+        self.expect(&Token::RBrace)?;
 
         Ok(Block {
             ann: self.span_from(start),
@@ -114,7 +108,7 @@ impl Parser {
         })
     }
 
-    fn parse_var_decl(&mut self) -> Result<StmtKind<Parsed>, Diagnostic> {
+    fn parse_var_decl(&mut self) -> Result<StmtKind<Parsed>, ()> {
         self.advance(); // consume `var`
         let name_str = self.expect_ident()?;
         let name = Ident {
@@ -135,7 +129,7 @@ impl Parser {
         Ok(StmtKind::VarDecl { name, ty, init })
     }
 
-    fn parse_const_decl(&mut self) -> Result<StmtKind<Parsed>, Diagnostic> {
+    fn parse_const_decl(&mut self) -> Result<StmtKind<Parsed>, ()> {
         self.advance(); // consume `const`
         let name_str = self.expect_ident()?;
         let name = Ident {
@@ -152,7 +146,7 @@ impl Parser {
         Ok(StmtKind::ConstDecl { name, ty, init })
     }
 
-    fn parse_return_stmt(&mut self) -> Result<StmtKind<Parsed>, Diagnostic> {
+    fn parse_return_stmt(&mut self) -> Result<StmtKind<Parsed>, ()> {
         self.advance(); // consume `return`
 
         if self.eat(&Token::Semicolon).is_some() {
@@ -164,10 +158,10 @@ impl Parser {
         Ok(StmtKind::Return(Some(expr)))
     }
 
-    fn parse_if_stmt(&mut self) -> Result<StmtKind<Parsed>, Vec<Diagnostic>> {
+    fn parse_if_stmt(&mut self) -> Result<StmtKind<Parsed>, ()> {
         self.advance(); // consume `if`
 
-        let cond = self.parse_expr_no_struct_lit().map_err(|e| vec![e])?;
+        let cond = self.parse_expr_no_struct_lit()?;
         let then_block = self.parse_block()?;
 
         let mut else_ifs = Vec::new();
@@ -176,7 +170,7 @@ impl Parser {
         while self.eat(&Token::Else).is_some() {
             if self.check(&Token::If) {
                 self.advance(); // consume `if`
-                let ei_cond = self.parse_expr_no_struct_lit().map_err(|e| vec![e])?;
+                let ei_cond = self.parse_expr_no_struct_lit()?;
                 let ei_block = self.parse_block()?;
                 else_ifs.push((ei_cond, ei_block));
             } else {
@@ -193,10 +187,10 @@ impl Parser {
         })
     }
 
-    fn parse_while_stmt(&mut self) -> Result<StmtKind<Parsed>, Vec<Diagnostic>> {
+    fn parse_while_stmt(&mut self) -> Result<StmtKind<Parsed>, ()> {
         self.advance(); // consume `while`
 
-        let cond = self.parse_expr_no_struct_lit().map_err(|e| vec![e])?;
+        let cond = self.parse_expr_no_struct_lit()?;
         let body = self.parse_block()?;
 
         Ok(StmtKind::While { cond, body })

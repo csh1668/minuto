@@ -1,5 +1,4 @@
 use crate::ast::{Parsed, Span, TypeExpr};
-use crate::diagnostic::Diagnostic;
 use crate::errors::ParserError;
 use crate::lexer::token::Token;
 use crate::parser::Parser;
@@ -7,7 +6,7 @@ use crate::parser::Parser;
 type ParsedType = TypeExpr<Parsed>;
 
 impl Parser {
-    pub(crate) fn parse_type(&mut self) -> Result<ParsedType, Diagnostic> {
+    pub(crate) fn parse_type(&mut self) -> Result<ParsedType, ()> {
         let start = self.mark();
 
         // readonly <type>
@@ -24,12 +23,13 @@ impl Parser {
         let (token, span) = match self.peek() {
             Some(t) => t.clone(),
             None => {
-                return Err(Diagnostic::from((
+                self.emit(
                     ParserError::UnexpectedEof {
                         expected: "type".to_string(),
                     },
                     self.span_from(start),
-                )));
+                );
+                return Err(());
             }
         };
 
@@ -50,7 +50,6 @@ impl Parser {
                 self.advance();
                 self.expect(&Token::Lt)?;
                 let inner = self.parse_type()?;
-                // self.expect(&Token::Gt)?;
                 self.expect_gt()?;
                 Ok(TypeExpr::Ptr(self.span_from(start), Box::new(inner)))
             }
@@ -58,7 +57,6 @@ impl Parser {
                 self.advance();
                 self.expect(&Token::Lt)?;
                 let inner = self.parse_type()?;
-                // self.expect(&Token::Gt)?;
                 self.expect_gt()?;
                 Ok(TypeExpr::Span(self.span_from(start), Box::new(inner)))
             }
@@ -66,16 +64,19 @@ impl Parser {
                 self.advance();
                 Ok(TypeExpr::Named(self.span_from(start), name))
             }
-            _ => Err(Diagnostic::from((
-                ParserError::ExpectedType {
-                    found: format!("{token:?}"),
-                },
-                self.span_from(start),
-            ))),
+            _ => {
+                self.emit(
+                    ParserError::ExpectedType {
+                        found: format!("{token:?}"),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
         }
     }
 
-    fn parse_fn_type(&mut self, start: usize) -> Result<ParsedType, Diagnostic> {
+    fn parse_fn_type(&mut self, start: usize) -> Result<ParsedType, ()> {
         self.advance(); // consume "fn"
         self.expect(&Token::LParen)?;
 
@@ -103,7 +104,7 @@ impl Parser {
 
     /// `ptr<ptr<int>>` 같은 경우, `>` 토큰이 `>>`로 묶일 수 있음
     /// `>`를 기대할 때 `>>`나 `>=`가 나오면 분해해서 처리한다.
-    fn expect_gt(&mut self) -> Result<Span, Diagnostic> {
+    fn expect_gt(&mut self) -> Result<Span, ()> {
         match self.peek().cloned() {
             Some((Token::Gt, span)) => {
                 self.advance();
@@ -139,22 +140,24 @@ impl Parser {
             }
             Some((token, _)) => {
                 let start = self.mark();
-                Err(Diagnostic::from((
+                self.emit(
                     ParserError::UnexpectedToken {
                         expected: ">".into(),
                         found: format!("{token:?}"),
                     },
                     self.span_from(start),
-                )))
+                );
+                Err(())
             }
             None => {
                 let start = self.mark();
-                Err(Diagnostic::from((
+                self.emit(
                     ParserError::UnexpectedEof {
                         expected: ">".into(),
                     },
                     self.span_from(start),
-                )))
+                );
+                Err(())
             }
         }
     }

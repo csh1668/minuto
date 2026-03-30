@@ -1,7 +1,6 @@
 use crate::ast::{
     BinOp, ExprKind, FieldInit, Ident, Parsed, ParsedExpr, Span, StaticReceiver, UnaryOp,
 };
-use crate::diagnostic::Diagnostic;
 use crate::errors::ParserError;
 use crate::lexer::token::Token;
 use crate::parser::Parser;
@@ -62,11 +61,11 @@ fn expr(span: Span, expr_kind: ExprKind<Parsed>) -> ParsedExpr {
 }
 
 impl Parser {
-    pub fn parse_expr(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    pub fn parse_expr(&mut self) -> Result<ParsedExpr, ()> {
         self.parse_assignment()
     }
 
-    pub(crate) fn parse_expr_no_struct_lit(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    pub(crate) fn parse_expr_no_struct_lit(&mut self) -> Result<ParsedExpr, ()> {
         let saved = self.allow_struct_lit;
         self.allow_struct_lit = false;
         let result = self.parse_expr();
@@ -74,7 +73,7 @@ impl Parser {
         result
     }
 
-    fn parse_assignment(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_assignment(&mut self) -> Result<ParsedExpr, ()> {
         let lhs = self.parse_binary(0)?;
 
         if self.eat(&Token::Eq).is_some() {
@@ -92,7 +91,7 @@ impl Parser {
         Ok(lhs)
     }
 
-    fn parse_binary(&mut self, min_prec: u8) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_binary(&mut self, min_prec: u8) -> Result<ParsedExpr, ()> {
         let mut lhs = self.parse_unary()?;
 
         while let Some(rule) = self.peek().and_then(|(tok, _)| infix_rule(tok)) {
@@ -119,7 +118,7 @@ impl Parser {
         Ok(lhs)
     }
 
-    fn parse_unary(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_unary(&mut self) -> Result<ParsedExpr, ()> {
         let start = self.mark();
 
         let op = match self.peek().map(|(t, _)| t) {
@@ -140,7 +139,7 @@ impl Parser {
         ))
     }
 
-    fn parse_postfix(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_postfix(&mut self) -> Result<ParsedExpr, ()> {
         let mut lhs = self.parse_primary()?;
 
         loop {
@@ -230,17 +229,18 @@ impl Parser {
         Ok(lhs)
     }
 
-    fn parse_primary(&mut self) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_primary(&mut self) -> Result<ParsedExpr, ()> {
         let start = self.mark();
         let (token, span) = match self.peek() {
             Some(t) => t.clone(),
             None => {
-                return Err(Diagnostic::from((
+                self.emit(
                     ParserError::UnexpectedEof {
                         expected: "expression".to_string(),
                     },
                     self.span_from(start),
-                )));
+                );
+                return Err(());
             }
         };
 
@@ -321,16 +321,19 @@ impl Parser {
                 ))
             }
 
-            _ => Err(Diagnostic::from((
-                ParserError::ExpectedExpression {
-                    found: format!("{token:?}"),
-                },
-                self.span_from(start),
-            ))),
+            _ => {
+                self.emit(
+                    ParserError::ExpectedExpression {
+                        found: format!("{token:?}"),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
         }
     }
 
-    fn parse_alloc(&mut self, start: usize) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_alloc(&mut self, start: usize) -> Result<ParsedExpr, ()> {
         self.advance(); // consume "alloc"
         self.expect(&Token::Lt)?;
         let ty = self.parse_type()?;
@@ -347,7 +350,7 @@ impl Parser {
         ))
     }
 
-    fn parse_free(&mut self, start: usize) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_free(&mut self, start: usize) -> Result<ParsedExpr, ()> {
         self.advance(); // consume "free"
         self.expect(&Token::LParen)?;
         let arg = self.parse_expr()?;
@@ -364,7 +367,7 @@ impl Parser {
         &mut self,
         start: usize,
         receiver: StaticReceiver,
-    ) -> Result<ParsedExpr, Diagnostic> {
+    ) -> Result<ParsedExpr, ()> {
         self.advance(); // consume type keyword (span, ptr, int, char)
         self.expect(&Token::ColonColon)?;
         let method = self.expect_ident()?;
@@ -379,7 +382,7 @@ impl Parser {
         ))
     }
 
-    fn parse_std_call(&mut self, start: usize) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_std_call(&mut self, start: usize) -> Result<ParsedExpr, ()> {
         self.advance(); // consume "std"
         self.expect(&Token::ColonColon)?;
         let func = self.expect_ident()?;
@@ -394,7 +397,7 @@ impl Parser {
         &mut self,
         start: usize,
         receiver: &str,
-    ) -> Result<ParsedExpr, Diagnostic> {
+    ) -> Result<ParsedExpr, ()> {
         self.expect(&Token::ColonColon)?;
         let method = self.expect_ident()?;
         let args = self.parse_args()?;
@@ -408,7 +411,7 @@ impl Parser {
         ))
     }
 
-    fn parse_struct_lit(&mut self, start: usize, name: &str) -> Result<ParsedExpr, Diagnostic> {
+    fn parse_struct_lit(&mut self, start: usize, name: &str) -> Result<ParsedExpr, ()> {
         self.expect(&Token::LBrace)?;
         let mut fields = Vec::new();
         while !self.check(&Token::RBrace) && !self.at_end() {
@@ -435,29 +438,35 @@ impl Parser {
 
     // ── Helpers ──
 
-    pub(crate) fn expect_ident(&mut self) -> Result<String, Diagnostic> {
+    pub(crate) fn expect_ident(&mut self) -> Result<String, ()> {
         let start = self.mark();
         match self.peek().cloned() {
             Some((Token::Ident(name), _)) => {
                 self.advance();
                 Ok(name)
             }
-            Some((token, _)) => Err(Diagnostic::from((
-                ParserError::ExpectedIdentifier {
-                    found: format!("{token:?}"),
-                },
-                self.span_from(start),
-            ))),
-            None => Err(Diagnostic::from((
-                ParserError::UnexpectedEof {
-                    expected: "identifier".to_string(),
-                },
-                self.span_from(start),
-            ))),
+            Some((token, _)) => {
+                self.emit(
+                    ParserError::ExpectedIdentifier {
+                        found: format!("{token:?}"),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
+            None => {
+                self.emit(
+                    ParserError::UnexpectedEof {
+                        expected: "identifier".to_string(),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
         }
     }
 
-    fn expect_field_name(&mut self) -> Result<String, Diagnostic> {
+    fn expect_field_name(&mut self) -> Result<String, ()> {
         let start = self.mark();
 
         let type_keyword_as_name = |kw: &Token| match kw {
@@ -480,22 +489,28 @@ impl Parser {
                 self.advance();
                 Ok(name)
             }
-            Some((tok, _)) => Err(Diagnostic::from((
-                ParserError::ExpectedIdentifier {
-                    found: format!("{tok:?}"),
-                },
-                self.span_from(start),
-            ))),
-            None => Err(Diagnostic::from((
-                ParserError::UnexpectedEof {
-                    expected: "field name".to_string(),
-                },
-                self.span_from(start),
-            ))),
+            Some((tok, _)) => {
+                self.emit(
+                    ParserError::ExpectedIdentifier {
+                        found: format!("{tok:?}"),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
+            None => {
+                self.emit(
+                    ParserError::UnexpectedEof {
+                        expected: "field name".to_string(),
+                    },
+                    self.span_from(start),
+                );
+                Err(())
+            }
         }
     }
 
-    fn parse_args(&mut self) -> Result<Vec<ParsedExpr>, Diagnostic> {
+    fn parse_args(&mut self) -> Result<Vec<ParsedExpr>, ()> {
         self.expect(&Token::LParen)?;
         let mut args = Vec::new();
         if !self.check(&Token::RParen) {

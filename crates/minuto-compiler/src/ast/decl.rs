@@ -25,13 +25,8 @@ pub struct FnDecl<P: Phase> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param<P: Phase> {
     pub ann: P::Ann,
-    pub kind: ParamKind<P>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParamKind<P: Phase> {
-    SelfParam { ty: Option<TypeExpr<P>> },
-    Named { name: Ident<P>, ty: TypeExpr<P> },
+    pub name: Ident<P>,
+    pub ty: TypeExpr<P>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
